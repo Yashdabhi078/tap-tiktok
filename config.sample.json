@@ -1,0 +1,10 @@
+{
+	"advertiser_id": "xxxxxxxxxxxxxxxxxxx",
+	"report_type": "BASIC",
+	"data_level": "AUCTION_AD",
+	"dimensions": ["ad_id", "stat_time_day"],
+	"start_date": "2021-01-23",
+	"end_date": "2021-08-24",
+	"token": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+	"disable_collection": true
+}
