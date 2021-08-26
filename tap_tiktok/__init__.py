@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import os
 import json
-from collections import namedtuple
 
 import requests
 import singer
@@ -76,19 +75,21 @@ def discover():
     return Catalog(streams)
 
 
-def request_data(config, stream):
+def request_data(config, state, stream):
     page = 1
     total_page = 1
     all_items = []
+    key = stream.replication_key if stream.replication_key else "stat_time_day"
+    start_date = singer.get_bookmark(state, stream.tap_stream_id, key).split(" ")[0] if state else str(config["start_date"])
 
-    headers = {"Access-Token": config.token}
+    headers = {"Access-Token": config["token"]}
     attr = {
-        "advertiser_id": config.advertiser_id,
-        "report_type": config.report_type,
-        "data_level": config.data_level,
-        "dimensions": config.dimensions,
-        "start_date": str(config.start_date),
-        "end_date": str(config.end_date),
+        "advertiser_id": config["advertiser_id"],
+        "report_type": config["report_type"],
+        "data_level": config["data_level"],
+        "dimensions": config["dimensions"],
+        "start_date": start_date,
+        "end_date": str(config["end_date"]),
         "lifetime": stream.replication_method is not "INCREMENTAL",
         "page_size": 200
     }
@@ -116,6 +117,9 @@ def sync(config, state, catalog):
     for stream in catalog.get_selected_streams(state):
         LOGGER.info("Syncing stream:" + stream.tap_stream_id)
 
+        bookmark_column = stream.replication_key if stream.replication_key else "stat_time_day"
+        is_sorted = False
+
         mdata = metadata.to_map(stream.metadata)
         schema = stream.schema.to_dict()
 
@@ -125,8 +129,9 @@ def sync(config, state, catalog):
             key_properties=stream.key_properties,
         )
 
-        tap_data = request_data(config, stream)
+        tap_data = request_data(config, state, stream)
 
+        max_bookmark = "0000-00-00 00:00:00"
         with singer.metrics.record_counter(stream.tap_stream_id) as counter:
             for row in tap_data:
                 # Type Conversation and Transformation
@@ -134,7 +139,18 @@ def sync(config, state, catalog):
 
                 # write one or more rows to the stream:
                 singer.write_records(stream.tap_stream_id, [transformed_data])
+                if bookmark_column:
+                    if is_sorted:
+                        # update bookmark to latest value
+                        state = singer.write_bookmark(state, stream.tap_stream_id, bookmark_column, row["dimensions"][bookmark_column])
+                        singer.write_state(state)
+                    else:
+                        # if data unsorted, save max value until end of writes
+                        max_bookmark = max(max_bookmark, row["dimensions"][bookmark_column])
             counter.increment(len(tap_data))
+        if bookmark_column and not is_sorted:
+            state = singer.write_bookmark(state, stream.tap_stream_id, bookmark_column, max_bookmark)
+            singer.write_state(state)
     return
 
 

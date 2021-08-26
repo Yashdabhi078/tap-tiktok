@@ -11,7 +11,7 @@ setup(
     py_modules=["tap_tiktok"],
     install_requires=[
         # NB: Pin these to a more specific version for tap reliability
-        "singer-python",
+        "singer-python==5.12.1",
         "requests",
     ],
     entry_points="""
