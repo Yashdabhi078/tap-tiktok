@@ -19,7 +19,7 @@ setup(
     tap-tiktok=tap_tiktok:main
     """,
     packages=["tap_tiktok"],
-    package_data = {
+    package_data={
         "schemas": ["tap_tiktok/schemas/*.json"]
     },
     include_package_data=True,
