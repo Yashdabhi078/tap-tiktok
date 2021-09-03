@@ -13,7 +13,7 @@ from six.moves.urllib.parse import urlencode, urlunparse
 
 REQUIRED_CONFIG_KEYS = ["advertiser_id", "report_type", "data_level", "dimensions", "start_date", "end_date", "token"]
 LOGGER = singer.get_logger()
-HOST = "ads.tiktok.com"
+HOST = "sandbox-ads.tiktok.com"
 PATH = "/open_api/v1.2/reports/integrated/get"
 
 
@@ -62,12 +62,14 @@ def build_url(path, query=""):
 def create_metadata_for_report(schema):
     mdata = [{"breadcrumb": [], "metadata": {"inclusion": "available"}}]
     for key in schema.properties:
-        mdata.append({"breadcrumb": ["properties", key], "metadata": {"inclusion": "available"}})
+        # hence when property is object, we will only consider properties of that object without taking object itself.
         if "object" in schema.properties.get(key).type:
             inclusion = "available" if key != "dimensions" else "automatic"
             mdata.extend(
                 [{"breadcrumb": ["properties", key, "properties", prop], "metadata": {"inclusion": inclusion}} for prop
                  in schema.properties.get(key).properties])
+        else:
+            mdata.append({"breadcrumb": ["properties", key], "metadata": {"inclusion": "available"}})
 
     return mdata
 
@@ -141,7 +143,6 @@ def request_data(config, state, stream):
 
         page = data.get("page_info", {}).get("page", 1) + 1
         total_page = data.get("page_info", {}).get("total_page", 1)
-
     return all_items
 
 
