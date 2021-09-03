@@ -13,7 +13,7 @@ from six.moves.urllib.parse import urlencode, urlunparse
 
 REQUIRED_CONFIG_KEYS = ["advertiser_id", "report_type", "data_level", "dimensions", "start_date", "end_date", "token"]
 LOGGER = singer.get_logger()
-HOST = "sandbox-ads.tiktok.com"
+HOST = "ads.tiktok.com"
 PATH = "/open_api/v1.2/reports/integrated/get"
 
 
