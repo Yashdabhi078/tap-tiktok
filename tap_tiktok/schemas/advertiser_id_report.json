@@ -17,7 +17,7 @@
           ],
           "format": "date-time"
         },
-        "campaign_id": {
+        "advertiser_id": {
           "type": [
             "null",
             "string"
@@ -31,12 +31,6 @@
         "object"
       ],
       "properties": {
-        "campaign_name": {
-          "type": [
-            "null",
-            "string"
-          ]
-        },
         "tt_app_id": {
           "type": [
             "null",

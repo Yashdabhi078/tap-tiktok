@@ -17,7 +17,7 @@
           ],
           "format": "date-time"
         },
-        "campaign_id": {
+        "adgroup_id": {
           "type": [
             "null",
             "string"
@@ -32,6 +32,24 @@
       ],
       "properties": {
         "campaign_name": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "campaign_id": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "adgroup_name": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "placement": {
           "type": [
             "null",
             "string"
