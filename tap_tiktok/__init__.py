@@ -3,6 +3,7 @@ import os
 import json
 import backoff
 import requests
+import arrow
 import singer
 from singer import utils, metadata
 from singer.catalog import Catalog, CatalogEntry
@@ -11,7 +12,7 @@ from singer.transform import transform
 from six import string_types
 from six.moves.urllib.parse import urlencode, urlunparse
 
-REQUIRED_CONFIG_KEYS = ["advertiser_id", "report_type", "data_level", "dimensions", "start_date", "end_date", "token"]
+REQUIRED_CONFIG_KEYS = ["advertiser_id", "report_type", "start_date", "token"]
 LOGGER = singer.get_logger()
 HOST = "ads.tiktok.com"
 PATH = "/open_api/v1.2/reports/integrated/get"
@@ -104,30 +105,10 @@ def make_request(url, headers):
     return response
 
 
-def request_data(config, state, stream):
+def request_data(attr, headers):
     page = 1
     total_page = 1
     all_items = []
-    key = stream.replication_key if stream.replication_key else "stat_time_day"
-    start_date = singer.get_bookmark(state, stream.tap_stream_id, key).split(" ")[0] if state else str(config["start_date"])
-    lifetime = stream.replication_method is not "INCREMENTAL"
-
-    # "stat_time_day" is unsupported dimensions when lifetime is true
-    if lifetime and "stat_time_day" in config["dimensions"]:
-        config["dimensions"].remove("stat_time_day")
-        # TODO: remove "stat_time_hour" if we use it as dimension
-
-    headers = {"Access-Token": config["token"]}
-    attr = {
-        "advertiser_id": config["advertiser_id"],
-        "report_type": config["report_type"],
-        "data_level": config["data_level"],
-        "dimensions": config["dimensions"],
-        "start_date": start_date,
-        "end_date": str(config["end_date"]),
-        "lifetime": lifetime,
-        "page_size": 200
-    }
 
     # do pagination
     while page <= total_page:
@@ -139,7 +120,6 @@ def request_data(config, state, stream):
 
         data = response.json().get("data", {})
         all_items += data.get("list", [])
-        LOGGER.info("Retrieved page --> %d", page)
 
         page = data.get("page_info", {}).get("page", 1) + 1
         total_page = data.get("page_info", {}).get("total_page", 1)
@@ -152,9 +132,7 @@ def sync(config, state, catalog):
     for stream in catalog.get_selected_streams(state):
         LOGGER.info("Syncing stream:" + stream.tap_stream_id)
 
-        bookmark_column = stream.replication_key if stream.replication_key else "stat_time_day"
-        is_sorted = False
-
+        bookmark_column = "stat_time_day"
         mdata = metadata.to_map(stream.metadata)
         schema = stream.schema.to_dict()
 
@@ -164,30 +142,43 @@ def sync(config, state, catalog):
             key_properties=stream.key_properties,
         )
 
-        tap_data = request_data(config, state, stream)
+        headers = {"Access-Token": config["token"]}
+        attr = {
+            "advertiser_id": config["advertiser_id"],
+            "report_type": config["report_type"],
+            "data_level": "AUCTION_" + stream.tap_stream_id.replace("_id_report", "").upper(),
+            "dimensions": [stream.tap_stream_id.replace("_report", ""), "stat_time_day"],
+            "lifetime": False,
+            "page_size": 200
+        }
 
-        max_bookmark = None
-        with singer.metrics.record_counter(stream.tap_stream_id) as counter:
-            for row in tap_data:
-                # Type Conversation and Transformation
-                transformed_data = transform(row, schema, metadata=mdata)
+        start_date = singer.get_bookmark(state, stream.tap_stream_id, bookmark_column).split(" ")[0] \
+            if state.get("bookmarks", {}).get(stream.tap_stream_id) else config["start_date"]
 
-                # write one or more rows to the stream:
-                singer.write_records(stream.tap_stream_id, [transformed_data])
-                if bookmark_column:
-                    if is_sorted:
-                        # update bookmark to latest value
-                        max_bookmark = row["dimensions"][bookmark_column]
-                        state = singer.write_bookmark(state, stream.tap_stream_id, bookmark_column, max_bookmark)
-                        singer.write_state(state)
-                    else:
-                        # if data unsorted, save max value until end of writes
-                        max_bookmark = row["dimensions"][bookmark_column] if max_bookmark is None else max_bookmark
-                        max_bookmark = max(max_bookmark, row["dimensions"][bookmark_column])
-            counter.increment(len(tap_data))
-        if bookmark_column and not is_sorted and max_bookmark:
-            state = singer.write_bookmark(state, stream.tap_stream_id, bookmark_column, max_bookmark)
+        while True:
+            attr["start_date"] = attr["end_date"] = start_date  # as both date are in closed interval
+            LOGGER.info("Querying Date --> %s", attr["start_date"])
+            tap_data = request_data(attr, headers)
+
+            bookmark = attr["start_date"]
+            with singer.metrics.record_counter(stream.tap_stream_id) as counter:
+                for row in tap_data:
+                    # Type Conversation and Transformation
+                    transformed_data = transform(row, schema, metadata=mdata)
+
+                    # write one or more rows to the stream:
+                    singer.write_records(stream.tap_stream_id, [transformed_data])
+                    counter.increment()
+                    bookmark = max([bookmark, row["dimensions"][bookmark_column]])
+
+            state = singer.write_bookmark(state, stream.tap_stream_id, bookmark_column, bookmark)
             singer.write_state(state)
+
+            if start_date < str(arrow.utcnow().date()):
+                start_date = str(arrow.get(start_date).shift(days=1).date())
+            if bookmark >= str(arrow.utcnow().date()):
+                break
+
     return
 
 
